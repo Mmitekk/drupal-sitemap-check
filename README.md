@@ -23,12 +23,16 @@
 
 ## Как запустить
 
-Браузер блокирует `fetch()` на чужой домен, поэтому файл нужно открывать **с того же домена, который проверяете**:
+Инструмент работает в трёх режимах.
+
+### 1. С домена самого сайта (полный функционал)
+
+Браузер блокирует `fetch()` на чужой домен, поэтому файл нужно положить в корень сайта:
 
 ```bash
-# положить файл в корень сайта
+# корень Drupal
 cp drupal-sitemap-check.html /var/www/drupal/
-# или в корень фронтенда
+# или корень фронтенда
 cp drupal-sitemap-check.html /var/www/html/
 ```
 
@@ -36,15 +40,54 @@ cp drupal-sitemap-check.html /var/www/html/
 https://ваш-сайт/drupal-sitemap-check.html
 ```
 
-Если Drupal лежит в поддиректории (`https://site.ru/drupal/`), положите файл рядом с `index.php` — база (`BASE`) возьмётся из адреса страницы автоматически.
+Если Drupal лежит в поддиректории (`https://site.ru/drupal/`), положите файл рядом с `index.php`. Адрес сайта подхватится автоматически, но его можно и поправить вручную в поле «Сайт».
 
-Открыть файл как `file://` можно, но `sitemap.xml` и страницы не загрузятся (CORS). Как обходной путь: список URL можно вставить текстом или загрузить файлом, а sitemap отдаётся вставкой XML.
+### 2. С GitHub Pages (демо)
+
+**Settings → Pages → Source: Deploy from a branch → ветка `main`, папка `/ (root)` → Save.**
+Через 1–2 минуты инструмент будет доступен на `https://mmitekk.github.io/drupal-sitemap-check/`.
+
+С GitHub Pages запросы идут на **чужой домен**, поэтому браузер заблокирует их. Что делать:
+
+- вставьте адрес сайта в поле «Сайт»;
+- **загрузите `sitemap.xml` файлом** (кнопка «файл sitemap») — тогда проверка «есть ли в карте» работает полностью;
+- или вставьте XML карты прямо в поле «Sitemap»;
+- для проверки самих страниц (id сущности, редиректы) включите галочку **«через CORS-прокси»** — запросы пойдут через публичный `api.allorigins.win`, ваш домен станет виден стороннему сервису;
+- можно передать адрес карты через хеш: `.../drupal-sitemap-check.html#https://site.ru/sitemap.xml`.
+
+### 3. Локально (`file://`)
+
+Открыть файл можно, но `sitemap.xml` и страницы не загрузятся (CORS). Список URL вставляется текстом или файлом, карта — вставкой XML.
+
+### Если хочется без прокси
+
+Прокси можно не использовать, если один раз разрешить чтение карты с GitHub Pages на стороне Drupal. В Drupal CORS живёт в ядре и настраивается файлом `cors.config.yml` рядом с `settings.php` (точное имя каталога зависит от того, как собран сайт; для стандартного ядра — `sites/default/`):
+
+```yaml
+enabled: true
+resources:
+  '/sitemap.xml':
+    origins: ['https://mmitekk.github.io']
+    methods: ['GET', 'OPTIONS']
+    headers: '*'
+    exposedHeaders: []
+    credentials: false
+  '*':
+    origins: ['https://mmitekk.github.io']
+    methods: ['GET', 'OPTIONS']
+    headers: '*'
+    exposedHeaders: []
+    credentials: false
+```
+
+После этого `drush cache:rebuild`. Смысла в этом мало: карта сайта и так публична, а сущности и редиректы через CORS всё равно не отдадут.
 
 ## Как пользоваться
 
-1. **Sitemap** — оставьте пустым: инструмент сам возьмёт адрес из `robots.txt`, а если там нет строки `Sitemap:` — попробует `/sitemap.xml`. Можно вставить XML карты прямо в поле или указать свой URL (в том числе `sitemap index` — дети подтянутся автоматически).
-2. **Список URL** — по одному на строке, можно относительными путями (`/page`), полными URL или просто списком из файла (`.txt`, `.csv`). **Пустое поле = проверяются сами URL из `sitemap.xml`.**
-3. **Проверить** — и смотрите таблицу.
+1. **Сайт** — адрес проверяемого сайта. Если файл открыт с домена сайта, подставляется сам.
+2. **Sitemap** — оставьте пустым: инструмент сам возьмёт адрес из `robots.txt`, а если там нет строки `Sitemap:` — попробует `/sitemap.xml`. Можно вставить XML карты прямо в поле, загрузить файл или указать свой URL (в том числе `sitemap index` — дети подтянутся автоматически).
+3. **Список URL** — по одному на строке, можно относительными путями (`/page`), полными URL или просто списком из файла (`.txt`, `.csv`). **Пустое поле = проверяются сами URL из `sitemap.xml`.**
+4. **Проверить** — и смотрите таблицу.
 
 Опции:
 
@@ -53,6 +96,8 @@ https://ваш-сайт/drupal-sitemap-check.html
 | определять сущность | скачивает каждую страницу и заполняет колонки сущности (id, тип, view, бандл, title, редирект) |
 | редирект считать найденным по целевой | если самого URL в карте нет, но его финальная страница есть — метка «только цель», а не «нет» |
 | максимум URL | ограничение количества проверяемых URL (по умолчанию 100) |
+| файл sitemap | загрузка `sitemap.xml` файлом, когда браузер блокирует cross-запрос |
+| через CORS-прокси | запросы к стороннему сайту через публичный `api.allorigins.win` |
 
 ## Что в таблице
 
@@ -106,7 +151,9 @@ https://ваш-сайт/drupal-sitemap-check.html
 
 ## Приватность
 
-Всё локально: запросы идут только к тому домену, откуда открыт файл, данные никуда не отправляются, внешних скриптов и аналитики нет. Cookie отправляются только same-origin и только того домена, где открыт инструмент.
+Всё локально: запросы идут только к домену, указанному в поле «Сайт», данные никуда не отправляются, внешних скриптов, шрифтов и аналитики нет. Cookie отправляются только same-origin и только того домена, откуда открыт файл.
+
+Единственное исключение — галочка «через CORS-прокси»: она отправляет адрес на `api.allorigins.win`. По умолчанию выключена и используется только для публично доступных адресов (карта сайта и открытые страницы).
 
 Интерфейс — русский, английская версия только в этом README.
 
@@ -130,12 +177,16 @@ Typical case: the sitemap contains URLs that 301-redirect elsewhere. You need to
 
 ## How to run it
 
-Browsers block cross-origin `fetch()`, so the file must be opened **from the same domain you are checking**:
+Three modes.
+
+### 1. From the site's own domain (full features)
+
+Browsers block cross-origin `fetch()`, so drop the file into the site document root:
 
 ```bash
-# put the file into the Drupal web root
+# Drupal root
 cp drupal-sitemap-check.html /var/www/drupal/
-# or into the front controller document root
+# or the front controller document root
 cp drupal-sitemap-check.html /var/www/html/
 ```
 
@@ -143,15 +194,54 @@ cp drupal-sitemap-check.html /var/www/html/
 https://your-site.tld/drupal-sitemap-check.html
 ```
 
-If Drupal lives in a subdirectory (`https://site.tld/drupal/`), drop the file next to `index.php` — the base URL (`BASE`) is derived from the page address automatically.
+If Drupal lives in a subdirectory (`https://site.tld/drupal/`), put the file next to `index.php`. The site URL is detected automatically and can still be corrected in the "Сайт" field.
 
-Opening the file as `file://` works, but `sitemap.xml` and pages will not load (CORS). Workaround: paste the URL list or upload a file, and paste the sitemap XML directly into the field.
+### 2. From GitHub Pages (demo)
+
+**Settings → Pages → Source: Deploy from a branch → branch `main`, folder `/ (root)` → Save.**
+In a minute or two the tool is available at `https://mmitekk.github.io/drupal-sitemap-check/`.
+
+From GitHub Pages all requests go to a **foreign domain**, so the browser blocks them. Options:
+
+- set the site in the "Сайт" field;
+- **upload `sitemap.xml` as a file** (the "файл sitemap" control) — then the "is it in the sitemap" check works fully;
+- or paste the sitemap XML straight into the "Sitemap" field;
+- to inspect pages themselves (entity ids, redirects) enable **"через CORS-прокси"** — requests go through the public `api.allorigins.win`, so your domain becomes visible to a third-party service;
+- the sitemap URL can be passed in the hash: `.../drupal-sitemap-check.html#https://site.tld/sitemap.xml`.
+
+### 3. Locally (`file://`)
+
+The file opens, but `sitemap.xml` and pages will not load (CORS). Paste the URL list or upload a file, and paste the sitemap XML into the field.
+
+### If you want to avoid the proxy
+
+You can allow GitHub Pages to read the sitemap once, from the Drupal side. CORS lives in Drupal core and is configured with a `cors.config.yml` file placed next to `settings.php` (for a standard core install — `sites/default/`):
+
+```yaml
+enabled: true
+resources:
+  '/sitemap.xml':
+    origins: ['https://mmitekk.github.io']
+    methods: ['GET', 'OPTIONS']
+    headers: '*'
+    exposedHeaders: []
+    credentials: false
+  '*':
+    origins: ['https://mmitekk.github.io']
+    methods: ['GET', 'OPTIONS']
+    headers: '*'
+    exposedHeaders: []
+    credentials: false
+```
+
+Then `drush cache:rebuild`. It buys little: the sitemap is public anyway, and entity data and redirects will not pass through CORS either way.
 
 ## Usage
 
-1. **Sitemap** — leave empty and the tool takes the URL from `robots.txt`, falling back to `/sitemap.xml`. You can also paste the sitemap XML into the field or type any URL (a `sitemap index` is expanded automatically).
-2. **URL list** — one per line: relative paths (`/page`), absolute URLs, or a list loaded from a `.txt` / `.csv` file. **Leave it empty to check the URLs of `sitemap.xml` itself.**
-3. **Check** — read the table.
+1. **Сайт** — the site to check. Filled in automatically when the file is served from that site.
+2. **Sitemap** — leave empty and the tool takes the URL from `robots.txt`, falling back to `/sitemap.xml`. You can also paste the sitemap XML into the field, upload a file, or type any URL (a `sitemap index` is expanded automatically).
+3. **URL list** — one per line: relative paths (`/page`), absolute URLs, or a list loaded from a `.txt` / `.csv` file. **Leave it empty to check the URLs of `sitemap.xml` itself.**
+4. **Check** — read the table.
 
 Options:
 
@@ -160,6 +250,8 @@ Options:
 | resolve entity | fetches each page and fills entity columns (id, type, view, bundle, title, redirect) |
 | count redirect target as found | if the URL itself is not in the sitemap but its final page is, the label is "target only" instead of "no" |
 | max URLs | limit of checked URLs (default 100) |
+| sitemap file | upload `sitemap.xml` when the browser blocks cross-origin requests |
+| via CORS proxy | requests to a foreign site go through the public `api.allorigins.win` |
 
 ## Table columns
 
@@ -205,7 +297,7 @@ To verify the sitemap is clean: leave the URL list empty, press Check, then filt
 
 ## Limitations
 
-- The tool needs to be served from the same domain (see "How to run it"), otherwise the browser blocks the requests.
+- Cross-origin reads are blocked by the browser: for full features serve the file from the site's own domain (see "How to run it"). From GitHub Pages either upload the sitemap as a file or enable the proxy.
 - Works with Drupal versions that expose `drupalSettings` in the markup (Drupal 8+).
 - It does not authenticate: it sees exactly what an anonymous visitor sees. Protected pages come back as 403 or a redirect to the login form.
 - For a sitemap index only the first 60 child files are read; page checks are limited by the "max URLs" field.
@@ -213,7 +305,9 @@ To verify the sitemap is clean: leave the URL list empty, press Check, then filt
 
 ## Privacy
 
-Everything is local: requests go only to the domain the file was opened from, nothing is uploaded anywhere, there are no external scripts and no analytics. Cookies are sent same-origin only, to the same domain as the tool.
+Everything is local: requests go only to the domain you typed in the "Сайт" field, nothing is uploaded anywhere, there are no external scripts, fonts or analytics. Cookies are sent same-origin only, and only to the domain the file was served from.
+
+The optional CORS-proxy checkbox is the one exception: it sends the target URL to `api.allorigins.win`. It is off by default and only ever used for publicly available addresses (a sitemap and public pages).
 
 The UI is Russian; this README is bilingual.
 

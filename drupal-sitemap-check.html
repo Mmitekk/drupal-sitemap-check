@@ -122,6 +122,10 @@
   <h1>Проверка URL по sitemap.xml</h1>
   <p>Отвечает на два вопроса: есть ли URL в карте сайта и какая сущность за ним стоит (тип, id, ссылка на сущность, редирект).</p>
   <div class="row" style="margin-top:12px">
+    <div style="flex:0 0 250px">
+      <label for="base">Сайт</label>
+      <input type="text" id="base" placeholder="https://site.ru">
+    </div>
     <div class="grow">
       <label for="sitemap">Sitemap — не указан, значит возьму из robots.txt, иначе /sitemap.xml</label>
       <input type="text" id="sitemap" placeholder="https://site.ru/sitemap.xml">
@@ -132,10 +136,13 @@
     <label class="opt"><input type="checkbox" id="enrich" checked> определять сущность (тип / id / view / taxonomy)</label>
     <label class="opt"><input type="checkbox" id="viaTarget" checked> редирект считать найденным по целевой</label>
     <label class="opt">максимум URL <input type="text" id="limit" value="100"></label>
+    <label class="opt" title="Если браузер блокирует cross-origin: загрузите sitemap.xml файлом">файл sitemap <input type="file" id="sitemapFile" accept=".xml,.txt"></label>
+    <label class="opt" title="Запросы к стороннему сайту пойдут через публичный прокси allorigins.win">через CORS-прокси <input type="checkbox" id="proxy"></label>
     <span class="sm" id="site"></span>
   </div>
 </div>
 
+<div class="status" id="cross"></div>
 <div class="status" id="status"></div>
 
 <div class="panel">
@@ -192,12 +199,45 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const uniq = a => [...new Set(a.filter(Boolean))];
 
-/* ---------- база берётся сама: https://site.ru/ (или /subdir/) ---------- */
-const BASE = (() => {
+/* ---------- база: поле «Сайт», по умолчанию адрес этой страницы ---------- */
+const HERE = (() => {
   const dir = location.pathname.replace(/[^/]*$/, '');
   return (location.origin + (dir === '/' ? '' : dir)).replace(/\/+$/, '');
 })();
-$('#site').textContent = 'сайт: ' + BASE;
+let BASE = '';
+let SITEMAP_XML = '';   // sitemap, загруженный файлом или вставленный вручную
+
+function syncBase(){
+  const v = ($('#base').value || '').trim().replace(/\/+$/, '');
+  BASE = v || (location.protocol.startsWith('http') ? HERE : '');
+  return BASE;
+}
+$('#base').value = location.protocol.startsWith('http') ? HERE : '';
+$('#base').placeholder = location.protocol.startsWith('http') ? HERE : 'https://site.ru';
+
+/* предупреждение о cross-origin */
+function updateNotice(){
+  syncBase();
+  let host = '';
+  try { host = new URL(BASE).origin; } catch(e){}
+  const same = !!host && host === location.origin;
+  $('#site').textContent = !BASE ? '' : same ? 'сайт: ' + BASE + ' · same-origin, всё работает' : 'сайт: ' + BASE;
+  const el = $('#cross');
+  if (same || !host){ el.className = 'status'; el.textContent = ''; return; }
+  el.className = 'status on';
+  el.innerHTML = 'Инструмент открыт на <b>' + esc(location.origin) + '</b>, а проверяемый сайт — <b>' + esc(host) +
+    '</b>. Браузер запретит чтение sitemap.xml и страниц (CORS), поэтому: <b>1)</b> загрузите sitemap.xml файлом или вставьте XML в поле, ' +
+    '<b>2)</b> включите «через CORS-прокси» (запросы пойдут через публичный allorigins.win), ' +
+    '<b>3)</b> или положите этот же файл в корень сайта и откройте его оттуда.';
+}
+$('#base').addEventListener('input', updateNotice);
+updateNotice();
+
+/* #sitemap в адресе страницы: index.html#https://site.ru/sitemap.xml */
+(() => {
+  const h = decodeURIComponent((location.hash || '').replace(/^#/, '').trim());
+  if (h && !$('#sitemap').value) $('#sitemap').value = h;
+})();
 
 function status(msg, cls){
   const el = $('#status');
@@ -234,18 +274,37 @@ function normPath(u){
   p = p.replace(/\/+$/, '');
   return (p || '/').toLowerCase();
 }
+const PROXY = 'https://api.allorigins.win/get?url=';
+
 async function grab(url, timeout = 30000){
+  const full = toAbs(url);
+  // прокси нужен только когда запрос уходит на другой домен
+  const cross = !/^https?:\/\//i.test(url) || (() => { try { return new URL(full).origin !== location.origin; } catch(e){ return true; } })();
+  const useProxy = $('#proxy').checked && cross && location.protocol.startsWith('http');
+
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeout);
   try{
-    const res = await fetch(toAbs(url), {
-      credentials:'same-origin',
+    const target = useProxy ? PROXY + encodeURIComponent(full) : full;
+    const res = await fetch(target, {
+      credentials: useProxy ? 'omit' : 'same-origin',
       signal: ctrl.signal,
       headers:{'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language':'ru-RU,ru;q=0.9'}
     });
+    if (useProxy){
+      if (!res.ok) return {error:'прокси вернул HTTP ' + res.status};
+      const j = JSON.parse(await res.text());
+      return {
+        status: j?.status?.http_code || 0,
+        finalUrl: j?.status?.url || full,
+        redirected: !!j?.status?.redirected,
+        text: j?.contents || ''
+      };
+    }
     return {status:res.status, finalUrl:res.url, redirected:res.redirected, text:await res.text()};
   } catch(e){
-    return {error: e.name === 'AbortError' ? 'таймаут' : (e.message || String(e))};
+    const msg = e.name === 'AbortError' ? 'таймаут' : (e.message || String(e));
+    return {error: useProxy ? 'прокси: ' + msg : msg};
   } finally { clearTimeout(t); }
 }
 
@@ -261,6 +320,7 @@ const xmlLocs = xml => {
 
 async function sitemapUrl(){
   const typed = $('#sitemap').value.trim();
+  if (typed.startsWith('<')){ SITEMAP_XML = typed; return ''; }
   if (typed) return toAbs(typed);
   const r = await grab(BASE + '/robots.txt', 15000);
   if (!r.error && r.status === 200){
@@ -271,6 +331,24 @@ async function sitemapUrl(){
 }
 
 async function loadSitemap(){
+  syncBase();
+  // 1) вставленный или загруженный файлом XML
+  if (SITEMAP_XML){
+    status('Разбираю sitemap из памяти…');
+    let p = xmlLocs(SITEMAP_XML);
+    if (p.index){
+      status('Sitemap index → загружаю дочерние файлы: ' + p.locs.length + '…');
+      const all = [];
+      for (const child of p.locs.slice(0, 60)){
+        const c = await grab(child);
+        if (c.error || c.status >= 400) continue;
+        try { all.push(...xmlLocs(c.text).locs); } catch(e){}
+      }
+      p = {index:false, locs:all};
+    }
+    return {locs:p.locs, url:'загруженный файл'};
+  }
+  // 2) адрес из поля или из robots.txt
   status('Определяю адрес sitemap…');
   const url = await sitemapUrl();
   status('Загружаю <b>' + esc(url) + '</b>…');
@@ -485,6 +563,9 @@ async function pool(items, worker, conc = 6){
 /* ---------- главное действие ---------- */
 $('#go').addEventListener('click', async () => {
   try{
+    syncBase();
+    if (!BASE) throw new Error('Укажите адрес сайта в поле «Сайт»');
+    updateNotice();
     const sm = await loadSitemap();
     SMAP = new Map();
     for (const l of sm.locs){
@@ -537,6 +618,8 @@ $('#go').addEventListener('click', async () => {
 $('#oneGo').addEventListener('click', async () => {
   const v = $('#one').value.trim();
   if (!v) return;
+  syncBase();
+  if (!BASE) return fail('Укажите адрес сайта в поле «Сайт»');
   status('Открываю ' + esc(toAbs(v)) + '…');
   const r = mkRow(v);
   const g = await grab(r.url, 25000);
@@ -595,6 +678,13 @@ document.querySelectorAll('#tbl th').forEach(th => th.addEventListener('click', 
   render();
 }));
 $('#clearList').addEventListener('click', () => { $('#list').value = ''; });
+$('#sitemapFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  SITEMAP_XML = await f.text();
+  $('#sitemap').value = '';
+  status('Sitemap загружен из файла ' + esc(f.name) + ' (' + ((SITEMAP_XML.match(/<loc>/g) || []).length) + ' URL в файле) — нажмите «Проверить»', 'ok');
+});
+$('#sitemap').addEventListener('input', () => { if ($('#sitemap').value.trim().startsWith('<')) SITEMAP_XML = $('#sitemap').value; });
 $('#listFile').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   $('#list').value = await f.text();
@@ -616,8 +706,9 @@ $('#foot').innerHTML =
   'ID берётся из <b>drupalSettings.path.currentPath</b> — внутреннего пути Drupal (node/135, taxonomy/term/11, user/1). ' +
   'Это работает даже когда тема не добавляет классы body, а canonical переписан SEO-модулем. ' +
   '<b>«нет»</b> — URL не найден в sitemap.xml. <b>«только цель»</b> — сам URL редиректит, но его конечная страница в карте есть. ' +
-  'Проверка карты на мусор: оставьте список URL пустым и нажмите «Проверить» — проверятся все URL из sitemap.xml.';
-status('Готов. Вставьте список URL или нажмите «Проверить» — sitemap.xml определится автоматически.', 'ok');
+  'Проверка карты на мусор: оставьте список URL пустым и нажмите «Проверить». ' +
+  'Запуск с GitHub Pages: укажите сайт в поле «Сайт», sitemap загрузите файлом или включите CORS-прокси.';
+status('Готов. Укажите сайт или откройте файл с домена сайта — и нажмите «Проверить».', 'ok');
 </script>
 </body>
 </html>
