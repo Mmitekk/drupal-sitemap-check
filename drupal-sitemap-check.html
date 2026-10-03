@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Проверка URL по sitemap.xml</title>
+<style>
+  /* монохромная тема: только чёрный, белый и оттенки серого */
+  :root{
+    --bg:#0c0c0c; --panel:#131313; --panel2:#181818; --field:#0a0a0a;
+    --line:#2b2b2b; --line2:#3f3f3f;
+    --txt:#eeeeee; --mut:#8f8f8f; --dim:#5e5e5e;
+    --inv-bg:#eeeeee; --inv-tx:#0c0c0c;
+    --stripe:#171717; --stripe2:#111111;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--bg);color:var(--txt);
+    font:14px/1.45 ui-monospace,SFMono-Regular,"JetBrains Mono",Consolas,"Liberation Mono",monospace;
+    font-variant-numeric:tabular-nums;
+  }
+  ::selection{background:var(--txt);color:var(--bg)}
+  ::-webkit-scrollbar{width:11px;height:11px}
+  ::-webkit-scrollbar-track{background:var(--bg)}
+  ::-webkit-scrollbar-thumb{background:#353535;border:3px solid var(--bg)}
+  ::-webkit-scrollbar-thumb:hover{background:#4d4d4d}
+
+  /* ---------- шапка ---------- */
+  .bar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 14px}
+  .bar h1{margin:0;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.18em}
+  .bar h1::before{content:"// ";color:var(--dim)}
+  .bar p{margin:6px 0 0;color:var(--mut);font-size:12px;max-width:110ch}
+
+  /* ---------- блоки ---------- */
+  .panel{margin:12px;padding:14px;border:1px solid var(--line);background:var(--panel)}
+  .panel.hide{display:none}
+  label{display:block;margin:0 0 5px;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.1em}
+  input[type=text],textarea{
+    width:100%;background:var(--field);color:var(--txt);border:1px solid var(--line);
+    padding:9px 10px;font:inherit;border-radius:0;
+  }
+  textarea{resize:vertical;white-space:pre;min-height:90px}
+  input::placeholder,textarea::placeholder{color:var(--dim)}
+  input[type=text]:focus,textarea:focus{outline:1px solid var(--txt);outline-offset:1px;border-color:var(--line2)}
+  input[type=checkbox]{accent-color:var(--txt);width:14px;height:14px;vertical-align:-2px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .row .grow{flex:1;min-width:280px}
+
+  button{
+    background:transparent;color:var(--txt);border:1px solid var(--line2);border-radius:0;
+    padding:9px 16px;font:inherit;cursor:pointer;text-transform:uppercase;letter-spacing:.06em;font-size:12px;
+  }
+  button:hover{background:#1e1e1e;border-color:var(--txt)}
+  button:active{background:var(--txt);color:var(--bg)}
+  button.pri{background:var(--inv-bg);color:var(--inv-tx);border-color:var(--inv-bg);padding:11px 28px;font-weight:700;font-size:13px}
+  button.pri:hover{background:var(--bg);color:var(--txt);border-color:var(--txt)}
+  button.pri:active{background:var(--txt);color:var(--bg)}
+  button.sm{padding:5px 11px;font-size:11px}
+  button.on{background:var(--txt);color:var(--bg);border-color:var(--txt)}
+  .opt{display:flex;gap:6px;align-items:center;color:var(--mut);font-size:12px;cursor:pointer;user-select:none}
+  .opt:hover{color:var(--txt)}
+  .opt input[type=text]{width:70px;padding:4px 6px}
+
+  /* ---------- статус ---------- */
+  .status{display:none;margin:12px 12px 0;padding:11px 13px;border:1px solid var(--line);border-left:3px solid var(--line2);background:var(--panel2);font-size:13px}
+  .status.on{display:block}
+  .status.ok{border-left-color:var(--txt)}
+  .status.err{border-left-color:var(--txt);background:#1b1b1b}
+  .status b{color:#fff}
+  .sm{color:var(--mut);font-size:11px}
+
+  /* ---------- счётчики ---------- */
+  .counters{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .c{border:1px solid var(--line);background:var(--panel2);padding:7px 13px;min-width:112px}
+  .c b{display:block;font-size:20px;line-height:1.15;font-weight:700}
+  .c small{color:var(--mut);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+  .c.yes{border-color:var(--line2)} .c.yes b{color:#fff}
+  .c.warn b{color:#b8b8b8}
+  .c.no{background:var(--inv-bg);border-color:var(--inv-bg)} .c.no b{color:var(--inv-tx)} .c.no small{color:#3c3c3c}
+
+  /* ---------- таблица ---------- */
+  .scroll{max-height:70vh;overflow:auto;border:1px solid var(--line);margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{border-bottom:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+  th{
+    position:sticky;top:0;z-index:2;background:var(--panel2);color:var(--mut);
+    font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;
+    cursor:pointer;white-space:nowrap;border-bottom:1px solid var(--line2);
+  }
+  th:hover{color:var(--txt)}
+  th.sorted{color:var(--txt);background:#1f1f1f;box-shadow:inset 0 -2px 0 var(--txt)}
+  tbody tr:hover td{background:#191919}
+  tbody tr.miss td{background:repeating-linear-gradient(135deg,var(--stripe) 0 6px,var(--stripe2) 6px 12px)}
+  tbody tr.miss td:first-child{box-shadow:inset 3px 0 0 var(--txt)}
+  tbody tr.tgt td:first-child{box-shadow:inset 3px 0 0 var(--line2)}
+  tbody tr:hover td:first-child{box-shadow:none}
+
+  /* ---------- метки (монохромные) ---------- */
+  .tag{display:inline-block;padding:0 7px;border:1px solid var(--line);font-size:11px;line-height:18px;white-space:nowrap;margin:1px 3px 1px 0}
+  .t-ok{background:var(--inv-bg);color:var(--inv-tx);border-color:var(--inv-bg);font-weight:700}
+  .t-warn{background:#282828;color:#d4d4d4;border-color:#3f3f3f}
+  .t-err{background:transparent;color:var(--txt);border:1px dashed var(--line2);font-weight:700}
+  .t-info{background:transparent;color:var(--mut);border-color:var(--line)}
+  a{color:var(--txt);text-decoration:underline;text-decoration-color:var(--line2);text-underline-offset:2px}
+  a:hover{color:#fff;text-decoration-color:var(--txt)}
+
+  /* ---------- разбор одной ссылки ---------- */
+  dl{display:grid;grid-template-columns:220px 1fr;gap:5px 14px;margin:0}
+  dt{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.07em;padding-top:2px}
+  dd{margin:0;word-break:break-word}
+  .hide{display:none}
+  .foot{color:var(--mut);font-size:12px;margin:14px;max-width:120ch}
+  .foot b{color:var(--txt)}
+  .bar a{font-size:12px}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Проверка URL по sitemap.xml</h1>
+  <p>Отвечает на два вопроса: есть ли URL в карте сайта и какая сущность за ним стоит (тип, id, ссылка на сущность, редирект).</p>
+  <div class="row" style="margin-top:12px">
+    <div class="grow">
+      <label for="sitemap">Sitemap — не указан, значит возьму из robots.txt, иначе /sitemap.xml</label>
+      <input type="text" id="sitemap" placeholder="https://site.ru/sitemap.xml">
+    </div>
+    <button class="pri" id="go">Проверить</button>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <label class="opt"><input type="checkbox" id="enrich" checked> определять сущность (тип / id / view / taxonomy)</label>
+    <label class="opt"><input type="checkbox" id="viaTarget" checked> редирект считать найденным по целевой</label>
+    <label class="opt">максимум URL <input type="text" id="limit" value="100"></label>
+    <span class="sm" id="site"></span>
+  </div>
+</div>
+
+<div class="status" id="status"></div>
+
+<div class="panel">
+  <label for="list">Список URL для проверки — по одному на строке. Пусто → проверю сами URL из sitemap.xml</label>
+  <textarea id="list" rows="6" placeholder="/aspiratory-dlya-verhnih-dyhatelnyh-putey/dlya-sanacii&#10;https://site.ru/other-page"></textarea>
+  <div class="row" style="margin-top:9px">
+    <label class="opt">файл со списком <input type="file" id="listFile" accept=".txt,.csv,.tsv"></label>
+    <button class="sm" id="clearList">Очистить</button>
+  </div>
+  <div class="counters" id="counters"></div>
+</div>
+
+<div class="panel hide" id="tablePanel">
+  <div class="row">
+    <input type="text" id="filter" placeholder="фильтр: URL / id / тип / title" style="max-width:320px">
+    <button class="sm" data-f="all">все</button>
+    <button class="sm" data-f="no">нет в карте</button>
+    <button class="sm" data-f="tgt">редиректы</button>
+    <button class="sm" data-f="err">404 / ошибки</button>
+    <button class="sm" data-f="yes">есть в карте</button>
+    <button class="sm" id="csv">Выгрузить CSV</button>
+  </div>
+  <div class="scroll"><table id="tbl">
+    <thead><tr>
+      <th data-k="url">URL</th>
+      <th data-k="rank">В sitemap.xml</th>
+      <th data-k="etype">Тип сущности</th>
+      <th data-k="id">ID</th>
+      <th data-k="currentPath">Внутренний путь</th>
+      <th data-k="entityUrl">Ссылка на сущность</th>
+      <th data-k="to">Редирект</th>
+      <th data-k="bundle">Бандл / словарь</th>
+      <th data-k="viewName">View</th>
+      <th data-k="title">Title</th>
+      <th data-k="flags">Флаги</th>
+    </tr></thead><tbody></tbody>
+  </table></div>
+</div>
+
+<div class="panel">
+  <label for="one">Разбор одной ссылки — определить тип сущности и id</label>
+  <div class="row">
+    <input type="text" id="one" class="grow" placeholder="/aspiratory-dlya-verhnih-dyhatelnyh-putey/dlya-sanacii">
+    <button class="pri" id="oneGo">Определить</button>
+  </div>
+  <div id="oneOut" class="hide" style="margin-top:12px"></div>
+</div>
+
+<div class="foot" id="foot"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const uniq = a => [...new Set(a.filter(Boolean))];
+
+/* ---------- база берётся сама: https://site.ru/ (или /subdir/) ---------- */
+const BASE = (() => {
+  const dir = location.pathname.replace(/[^/]*$/, '');
+  return (location.origin + (dir === '/' ? '' : dir)).replace(/\/+$/, '');
+})();
+$('#site').textContent = 'сайт: ' + BASE;
+
+function status(msg, cls){
+  const el = $('#status');
+  el.className = 'status on' + (cls ? ' ' + cls : '');
+  el.innerHTML = msg;
+}
+const fail = m => status('✖ ' + esc(m), 'err');
+
+/* ---------- адреса ---------- */
+function toAbs(v){
+  let s = String(v || '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^\/\//.test(s)) return location.protocol + s;
+  if (/^\/index\.php(\/|$|\?)/i.test(s)) return BASE + s;
+  // «/www.site.ru/sitemap.xml» или «site.ru/page» — тут явно хост, а не путь
+  if (/^\/?[a-z0-9.-]+\.[a-zа-я]{2,}(:\d+)?(\/|$|\?)/i.test(s)){
+    s = s.replace(/^\/+/, '');
+    return 'https://' + s;
+  }
+  if (s[0] === '/') return BASE + s;
+  return BASE + '/' + s;
+}
+function normPath(u){
+  let p;
+  try { p = new URL(toAbs(u)).pathname; }
+  catch(e){ p = String(u).split(/[?#]/)[0]; if (p[0] !== '/') p = '/' + p; }
+  try {
+    const b = new URL(BASE).pathname.replace(/\/+$/, '');
+    if (b && p.toLowerCase().startsWith(b.toLowerCase())) p = p.slice(b.length) || '/';
+  } catch(e){}
+  p = p.replace(/^\/?index\.php/i, '');
+  if (p[0] !== '/') p = '/' + p;
+  p = p.replace(/\/+$/, '');
+  return (p || '/').toLowerCase();
+}
+async function grab(url, timeout = 30000){
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeout);
+  try{
+    const res = await fetch(toAbs(url), {
+      credentials:'same-origin',
+      signal: ctrl.signal,
+      headers:{'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language':'ru-RU,ru;q=0.9'}
+    });
+    return {status:res.status, finalUrl:res.url, redirected:res.redirected, text:await res.text()};
+  } catch(e){
+    return {error: e.name === 'AbortError' ? 'таймаут' : (e.message || String(e))};
+  } finally { clearTimeout(t); }
+}
+
+/* ---------- sitemap ---------- */
+const xmlLocs = xml => {
+  const d = new DOMParser().parseFromString(xml, 'text/xml');
+  if (d.querySelector('parsererror')) throw new Error('это не XML');
+  return {
+    index: d.documentElement.nodeName === 'sitemapindex',
+    locs: [...d.querySelectorAll('loc')].map(e => e.textContent.trim()).filter(Boolean)
+  };
+};
+
+async function sitemapUrl(){
+  const typed = $('#sitemap').value.trim();
+  if (typed) return toAbs(typed);
+  const r = await grab(BASE + '/robots.txt', 15000);
+  if (!r.error && r.status === 200){
+    const m = r.text.match(/^\s*Sitemap:\s*(\S+)/gmi) || [];
+    if (m.length) return toAbs(m[0].split(/:\s*/).pop());
+  }
+  return BASE + '/sitemap.xml';
+}
+
+async function loadSitemap(){
+  status('Определяю адрес sitemap…');
+  const url = await sitemapUrl();
+  status('Загружаю <b>' + esc(url) + '</b>…');
+
+  const r = await grab(url);
+  if (r.error) throw new Error(url + ' — ' + r.error);
+  if (r.status >= 400) throw new Error(url + ' — сервер вернул HTTP ' + r.status);
+  if (/^\s*<(!doctype html|html)/i.test(r.text)) throw new Error(url + ' — это HTML-страница, а не XML (проверьте адрес)');
+
+  let p = xmlLocs(r.text);
+  if (p.index){
+    status('Sitemap index → загружаю дочерние файлы: ' + p.locs.length + '…');
+    const all = [];
+    for (const child of p.locs.slice(0, 60)){
+      const c = await grab(child);
+      if (c.error || c.status >= 400) continue;
+      try { all.push(...xmlLocs(c.text).locs); } catch(e){}
+    }
+    p = {index:false, locs:all};
+  }
+  $('#sitemap').value = url;
+  return {locs:p.locs, url};
+}
+
+/* ---------- разбор HTML ---------- */
+const PATTERNS = [
+  [/\/node\/(\d+)\/revisions\/(\d+)/,'node_revision',2],
+  [/\/node\/(\d+)/,'node',1],
+  [/\/taxonomy\/term\/(\d+)/,'taxonomy_term',1],
+  [/\/media\/(\d+)/,'media',1],
+  [/\/user\/(\d+)/,'user',1],
+  [/\/view\/(\d+)/,'view',1]
+];
+const EPATH = {node:'node', node_revision:'node', taxonomy_term:'taxonomy/term', media:'media', user:'user', view:'view'};
+
+/* внутренний путь Drupal (drupalSettings.path.currentPath) → тип + id. Это главный источник:
+   тема может не давать классов body, а canonical бывает переписан SEO-модулем. */
+function fromInternalPath(cp){
+  if (!cp) return null;
+  if (/^node\/type\//.test(cp)) return {etype:'node_type', id:cp.replace(/^node\/type\//,'')};
+  let m = cp.match(/^node\/(\d+)\/revisions\/(\d+)/);
+  if (m) return {etype:'node', id:m[1], rev:m[2]};
+  if ((m = cp.match(/^node\/(\d+)/))) return {etype:'node', id:m[1]};
+  if ((m = cp.match(/^taxonomy\/term\/(\d+)/))) return {etype:'taxonomy_term', id:m[1]};
+  if ((m = cp.match(/^user\/(\d+)/))) return {etype:'user', id:m[1]};
+  if ((m = cp.match(/^media\/(\d+)/))) return {etype:'media', id:m[1]};
+  if ((m = cp.match(/^view\/([\w.-]+)/))) return {etype:'view', id:m[1]};
+  return {etype:'route', id:cp};
+}
+
+function parseHtml(html, url){
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const r = {flags:[], ids:[]};
+  r.title = (doc.title || '').replace(/\s+/g,' ').trim();
+  const cls = ((doc.body && doc.body.getAttribute('class')) || '').split(/\s+/).filter(Boolean);
+  r.classes = cls;
+  const g = re => { const c = cls.find(x => re.test(x)); return c ? (c.match(re) || [])[1] || '' : ''; };
+  r.viewMode = g(/node--view-mode-(.+)$/);
+  r.bundle = g(/(?:page-)?node--type-(.+)$/) || g(/taxonomy-term--vocabulary-(.+)$/);
+  r.viewId = (cls.find(c => c.indexOf('view-id-') === 0) || '').slice(7);
+
+  const can = doc.querySelector('link[rel="canonical"]');
+  r.canonical = can ? can.href : '';
+
+  let st = null;
+  const se = doc.querySelector('script[data-drupal-selector="drupal-settings-json"]');
+  if (se){ try{ st = JSON.parse(se.textContent); }catch(e){} }
+  // currentPath приходит с экранированными слэшами: "node\/135"
+  r.currentPath = String(st?.path?.currentPath || '').replace(/\\\//g, '/').replace(/^\/+|\/+$/g, '');
+  r.isFront = !!st?.path?.isFront;
+  r.lang = st?.path?.currentLanguage || '';
+  r.settingsKeys = st ? Object.keys(st) : [];
+
+  // 1) внутренний путь Drupal — самый надёжный источник id
+  const fromPath = fromInternalPath(r.currentPath);
+  if (fromPath){ r.etype = fromPath.etype; r.ids.push(fromPath.id); }
+  // 2) canonical со /node/N, /taxonomy/term/N и т.п.
+  for (const s of [r.canonical, url]){
+    if (!s) continue;
+    for (const [re, et, grp] of PATTERNS){
+      const m = s.match(re);
+      if (m && !r.etype){ r.ids.push(m[grp]); r.etype = et; }
+    }
+  }
+  r.idsSource = r.currentPath ? 'drupalSettings' : (r.canonical ? 'canonical' : '');
+
+  const views = [];
+  doc.querySelectorAll('[data-drupal-view-name], .view-dom-id, [id^="view-"]').forEach(el => {
+    const n = el.getAttribute('data-drupal-view-name') || r.viewId;
+    if (n) views.push(n);
+    const nid = el.getAttribute('data-history-node-id');
+    if (nid) r.ids.push(nid);
+  });
+  r.viewName = uniq(views).join(', ') || r.viewId || '';
+  r.ids = uniq(r.ids);
+
+  r.items = doc.querySelectorAll('.view-row, .views-row').length;
+  r.pager = (doc.querySelector('.pager__item--active a, .pager__item--active span')?.textContent || '').trim();
+  r.terms = uniq([...doc.querySelectorAll('a[rel="tag"]')].map(a => a.textContent.trim())).slice(0,10);
+  r.messages = [...doc.querySelectorAll('.messages, .messages--status, .messages--error, .messages--warning')]
+    .map(e => e.textContent.replace(/\s+/g,' ').trim().slice(0,200));
+
+  if (doc.querySelector('meta[http-equiv="refresh" i]')){
+    const m = doc.querySelector('meta[http-equiv="refresh" i]').getAttribute('content') || '';
+    const u = (m.match(/url\s*=\s*(.+)$/i) || [])[1];
+    r.metaRefreshTo = u ? u.replace(/^['']|['"]$/g, '') : '';
+    r.flags.push(r.currentPath ? 'meta refresh (JS-переход)' : 'JS-защита / челлендж (данных Drupal нет)');
+  }
+  if (/не найден|not found|page you are looking/i.test(r.title + ' ' + r.messages.join(' '))) r.flags.push('404');
+  if (/access denied|нет доступа/i.test(r.messages.join(' '))) r.flags.push('403');
+  // мягкий 404 / редирект: canonical указывает на другой адрес
+  if (r.canonical && normPath(r.canonical) !== normPath(url)){
+    r.flags.push('canonical → ' + normPath(r.canonical));
+  }
+  if (r.isFront) r.flags.push('это главная страница');
+
+  const main = doc.querySelector('.region-content, main, #main, #block-system-main') || doc.body;
+  const links = main ? [...main.querySelectorAll('a[href]')].filter(a => /^https?:/i.test(a.getAttribute('href'))) : [];
+  const hasContent = !!(main && main.querySelector('.views-row, .node, .field--name-body, form, table, article'));
+  if (!hasContent && links.length === 1) r.flags.push('похоже на редирект-заглушку');
+  r.stubTarget = links.length === 1 ? links[0].href : '';
+  return r;
+}
+
+/* ---------- строки ---------- */
+let ROWS = [], SMAP = new Map(), SORT = {k:'rank', dir:1}, FILTER = 'all';
+
+function mkRow(u){
+  return {url:toAbs(u), path:normPath(u), status:'—', to:'', etype:'', id:'', entityUrl:'', currentPath:'',
+          bundle:'', viewMode:'', viewName:'', title:'', flags:[], rank:0, inSitemap:false, smLoc:''};
+}
+function mark(r){
+  r.smLoc = SMAP.get(r.path) || '';
+  r.inSitemap = !!r.smLoc;
+  r.rank = r.inSitemap ? 2 : 0;
+  if (r.to && $('#viaTarget').checked && !r.inSitemap){
+    const t = SMAP.get(normPath(r.to));
+    if (t){ r.inSitemap = true; r.smLoc = t; r.rank = 1; }
+  }
+  r.entityUrl = (r.etype && r.id && EPATH[r.etype]) ? BASE + '/' + EPATH[r.etype] + '/' + r.id : '';
+  return r;
+}
+
+function filtered(){
+  let rows = ROWS;
+  if (FILTER === 'no') rows = rows.filter(r => r.rank === 0);
+  else if (FILTER === 'tgt') rows = rows.filter(r => r.redirect);
+  else if (FILTER === 'yes') rows = rows.filter(r => r.inSitemap);
+  else if (FILTER === 'err') rows = rows.filter(r => r.status === 404 || /404|403|ошибка/i.test(r.flags.join(' ')));
+  const q = $('#filter').value.trim().toLowerCase();
+  if (q) rows = rows.filter(r => [r.url, r.currentPath, r.etype, r.id, r.bundle, r.viewName, r.title, r.to, (r.flags||[]).join(' ')].join(' ').toLowerCase().includes(q));
+  return rows;
+}
+function sorted(rows){
+  const {k, dir} = SORT;
+  return [...rows].sort((a, b) => {
+    const av = k === 'rank' ? a.rank : String(a[k] ?? '');
+    const bv = k === 'rank' ? b.rank : String(b[k] ?? '');
+    return (typeof av === 'number' && typeof bv === 'number') ? (av - bv) * dir : String(av).localeCompare(String(bv)) * dir;
+  });
+}
+function render(step){
+  const yes = ROWS.filter(r => r.rank === 2).length, no = ROWS.filter(r => r.rank === 0).length,
+        tgt = ROWS.filter(r => r.rank === 1).length, red = ROWS.filter(r => r.redirect).length;
+  $('#counters').innerHTML =
+    `<div class="c"><b>${ROWS.length}</b><small>строк в таблице</small></div>`+
+    `<div class="c yes"><b>${yes}</b><small>есть в sitemap.xml</small></div>`+
+    `<div class="c no"><b>${no}</b><small>нет в sitemap.xml</small></div>`+
+    `<div class="c warn"><b>${tgt}</b><small>найдено по целевой</small></div>`+
+    `<div class="c warn"><b>${red}</b><small>редиректов</small></div>`+
+    `<div class="c"><b>${SMAP.size}</b><small>URL в sitemap.xml</small></div>`;
+
+  $('#tbl').tBodies[0].innerHTML = sorted(filtered()).map(r => {
+    const st = r.rank === 0 ? '<span class="tag t-err">нет</span>'
+              : r.rank === 1 ? '<span class="tag t-warn">только цель</span>'
+              : '<span class="tag t-ok">да</span>';
+    const ent = r.entityUrl ? `<a href="${esc(r.entityUrl)}" target="_blank">${esc(r.etype)}/${esc(r.id)}</a>` : (r.etype || '');
+    const fl = (r.flags||[]).map(f => {
+      const c = /404|403|ошибка/i.test(f) ? 't-err' : (/редирект|заглушк|refresh/i.test(f) ? 't-warn' : 't-info');
+      return `<span class="tag ${c}">${esc(f)}</span>`;
+    }).join(' ');
+    return `<tr class="${r.rank===0?'miss':r.rank===1?'tgt':''}">
+      <td><a href="${esc(r.url)}" target="_blank">${esc(r.path)}</a><div class="sm">HTTP ${esc(r.status)}</div></td>
+      <td>${st}${r.smLoc && r.rank===1 ? '<div class="sm">'+esc(r.smLoc)+'</div>' : ''}</td>
+      <td>${esc(r.etype||'')}</td>
+      <td>${esc(r.id||'')}</td>
+      <td class="sm">${esc(r.currentPath||'')}</td>
+      <td>${ent}</td>
+      <td class="sm">${r.to ? '&rarr; '+esc(r.to) : (r.stubTarget ? '&rarr; '+esc(r.stubTarget) : '')}</td>
+      <td>${esc(r.bundle||'')}</td>
+      <td>${esc(r.viewName||'')}</td>
+      <td>${esc(r.title||'')}</td>
+      <td>${fl}</td></tr>`;
+  }).join('');
+  $('#tablePanel').classList.toggle('hide', !ROWS.length);
+  document.querySelectorAll('#tbl th').forEach(th => th.classList.toggle('sorted', th.dataset.k === SORT.k));
+  if (step) status(step);
+}
+
+async function pool(items, worker, conc = 6){
+  let i = 0, done = 0;
+  await Promise.all(Array.from({length:Math.min(conc, items.length)}, async () => {
+    while (i < items.length){
+      const k = i++;
+      await worker(items[k]);
+      done++;
+      if (done % 5 === 0 || done === items.length) render(`Определяю сущности: ${done} / ${items.length}…`);
+    }
+  }));
+}
+
+/* ---------- главное действие ---------- */
+$('#go').addEventListener('click', async () => {
+  try{
+    const sm = await loadSitemap();
+    SMAP = new Map();
+    for (const l of sm.locs){
+      const p = normPath(l);
+      if (p && !SMAP.has(p)) SMAP.set(p, l);
+    }
+    if (!SMAP.size) throw new Error('В sitemap нет ни одного <loc>');
+
+    const limit = parseInt($('#limit').value, 10) || 100;
+    let list = $('#list').value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    if (list.length === 1) list = list[0].split(/[,\t;]/).map(x => x.trim()).filter(Boolean);
+    if (!list.length){
+      list = sm.locs.slice(0, limit);
+      status('Список URL пуст — проверяю сами URL из sitemap.xml (' + Math.min(list.length, limit) + ')');
+    }
+    list = uniq(list).slice(0, limit);
+
+    ROWS = list.map(mkRow).map(mark);
+    FILTER = 'all'; SORT = {k:'rank', dir:1};
+    render('Проверено URL: ' + ROWS.length + '. Отсутствуют в sitemap.xml: ' + ROWS.filter(r => r.rank === 0).length);
+
+    if ($('#enrich').checked){
+      await pool(ROWS, async r => {
+        const g = await grab(r.url, 25000);
+        if (g.error){ r.status = 'ошибка'; r.flags.push('ошибка: ' + g.error); return; }
+        const info = parseHtml(g.text, r.url);
+        r.status = g.status;
+        r.redirect = g.redirected && normPath(g.finalUrl) !== r.path;
+        r.to = r.redirect ? g.finalUrl : (info.metaRefreshTo ? toAbs(info.metaRefreshTo) : '');
+        r.etype = info.etype || ''; r.id = info.ids[0] || '';
+        r.currentPath = info.currentPath || '';
+        r.bundle = info.bundle || ''; r.viewMode = info.viewMode || '';
+        r.viewName = info.viewName || ''; r.title = info.title || '';
+        r.items = info.items; r.messages = info.messages;
+        r.canonical = info.canonical;
+        r.stubTarget = info.stubTarget; r.classes = info.classes;
+        r.flags = uniq([...info.flags, ...(r.status >= 400 ? ['HTTP ' + r.status] : []), ...(r.redirect ? ['редирект'] : [])]);
+        mark(r);
+      });
+    }
+    const no = ROWS.filter(r => r.rank === 0).length;
+    status('Готово. Проверено: <b>' + ROWS.length + '</b> · есть в карте: <b>' + ROWS.filter(r=>r.rank===2).length +
+           '</b> · <b>нет в карте: ' + no + '</b> · редиректов: <b>' + ROWS.filter(r=>r.redirect).length + '</b>');
+  } catch(e){
+    fail(e.message);
+  }
+});
+
+/* ---------- разбор одной ссылки ---------- */
+$('#oneGo').addEventListener('click', async () => {
+  const v = $('#one').value.trim();
+  if (!v) return;
+  status('Открываю ' + esc(toAbs(v)) + '…');
+  const r = mkRow(v);
+  const g = await grab(r.url, 25000);
+  let info = {};
+  if (g.error){
+    r.status = 'ошибка'; r.flags.push('ошибка: ' + g.error);
+  } else {
+    info = parseHtml(g.text, r.url);
+    r.status = g.status;
+    r.redirect = g.redirected && normPath(g.finalUrl) !== r.path;
+    r.to = r.redirect ? g.finalUrl : (info.metaRefreshTo ? toAbs(info.metaRefreshTo) : '');
+    r.etype = info.etype || ''; r.id = info.ids[0] || '';
+    r.currentPath = info.currentPath || '';
+    r.bundle = info.bundle || ''; r.viewMode = info.viewMode || ''; r.viewName = info.viewName || '';
+    r.title = info.title || ''; r.flags = info.flags.concat(r.redirect ? ['редирект'] : []);
+  }
+  mark(r);
+  const rowsD = [
+    ['URL', `<a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a>`],
+    ['В sitemap.xml', r.inSitemap ? '<span class="tag t-ok">да</span> ' + esc(r.smLoc) : '<span class="tag t-err">нет</span>'],
+    ['HTTP', esc(r.status)],
+    ['Редирект', r.to ? '&rarr; ' + esc(r.to) : (info.stubTarget ? 'похоже на заглушку → ' + esc(info.stubTarget) : '—')],
+    ['Тип сущности', esc(r.etype || '—')],
+    ['ID', esc(r.id || '—')],
+    ['Внутренний путь (currentPath)', esc(r.currentPath || '—')],
+    ['Источник id', esc(info.idsSource || '—')],
+    ['Ссылка на сущность', r.entityUrl ? `<a href="${esc(r.entityUrl)}" target="_blank">${esc(r.entityUrl)}</a>` : '—'],
+    ['Бандл / словарь', esc(r.bundle || '—')],
+    ['View mode', esc(r.viewMode || '—')],
+    ['View', esc(r.viewName || '—')],
+    ['Title', esc(r.title || '—')],
+    ['Строк в view / пагинация', `${esc(info.items ?? '—')} / ${esc(info.pager || '—')}`],
+    ['Термы', (info.terms || []).join(', ') || '—'],
+    ['Canonical', info.canonical ? `<a href="${esc(info.canonical)}" target="_blank">${esc(info.canonical)}</a>` : '—'],
+    ['Язык / главная', `${esc(info.lang || '—')} / ${info.isFront ? 'да' : 'нет'}`],
+    ['Сообщения', (info.messages || []).join(' | ') || '—'],
+    ['Флаги', (r.flags || []).join(', ') || '—'],
+    ['Классы body', `<span class="sm">${esc((info.classes || []).join(' '))}</span>`]
+  ];
+  $('#oneOut').classList.remove('hide');
+  $('#oneOut').innerHTML = '<dl>' + rowsD.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v || '—'}</dd>`).join('') + '</dl>';
+  status('Готово');
+});
+
+/* ---------- прочее ---------- */
+$('#filter').addEventListener('input', () => render());
+document.querySelectorAll('[data-f]').forEach(b => b.addEventListener('click', () => {
+  FILTER = b.dataset.f;
+  b.classList.toggle('on', FILTER === b.dataset.f);
+  if (FILTER === 'no' || FILTER === 'tgt') SORT = {k:'rank', dir:1};
+  render();
+}));
+document.querySelectorAll('#tbl th').forEach(th => th.addEventListener('click', () => {
+  const k = th.dataset.k;
+  SORT = {k, dir: SORT.k === k ? -SORT.dir : 1};
+  render();
+}));
+$('#clearList').addEventListener('click', () => { $('#list').value = ''; });
+$('#listFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  $('#list').value = await f.text();
+  status('Список загружен: ' + f.name + ' — строк: ' + $('#list').value.split(/\r?\n/).filter(Boolean).length);
+});
+$('#csv').addEventListener('click', () => {
+  const q = v => '"' + String(v ?? '').replace(/"/g,'""') + '"';
+  const head = ['URL','Путь','В sitemap.xml','HTTP','Тип','ID','Внутренний путь','Ссылка на сущность','Редирект','Бандл/словарь','View','Title','Флаги'];
+  const body = sorted(filtered()).map(r => [r.url, r.path, r.rank === 0 ? 'нет' : r.rank === 1 ? 'только цель' : 'да',
+    r.status, r.etype, r.id, r.currentPath, r.entityUrl, r.to, r.bundle, r.viewName, r.title, (r.flags||[]).join('|')].map(q).join(';'));
+  const csv = '\uFEFF' + [head.join(';')].concat(body).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'sitemap-check.csv'; a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$('#foot').innerHTML =
+  'ID берётся из <b>drupalSettings.path.currentPath</b> — внутреннего пути Drupal (node/135, taxonomy/term/11, user/1). ' +
+  'Это работает даже когда тема не добавляет классы body, а canonical переписан SEO-модулем. ' +
+  '<b>«нет»</b> — URL не найден в sitemap.xml. <b>«только цель»</b> — сам URL редиректит, но его конечная страница в карте есть. ' +
+  'Проверка карты на мусор: оставьте список URL пустым и нажмите «Проверить» — проверятся все URL из sitemap.xml.';
+status('Готов. Вставьте список URL или нажмите «Проверить» — sitemap.xml определится автоматически.', 'ok');
+</script>
+</body>
+</html>
